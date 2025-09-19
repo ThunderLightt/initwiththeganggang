@@ -187,16 +187,16 @@
       goo.innerHTML = `
         <defs>
           <filter id="goo">
-            <feGaussianBlur in="SourceGraphic" stdDeviation="18" result="blur" />
-            <feColorMatrix in="blur" mode="matrix" values="
-              1 0 0 0 0
+            <feGaussianBlur in="SourceGraphic" stdDeviation="18" result="blur"></feGaussianBlur>
+            <feColorMatrix in="blur" mode="matrix" values="1 0 0 0 0
               0 1 0 0 0
               0 0 1 0 0
-              0 0 0 20 -10" result="goo" />
-            <feBlend in="SourceGraphic" in2="goo" />
+              0 0 0 20 -10" result="goo"></feColorMatrix>
+            <feBlend in="SourceGraphic" in2="goo"></feBlend>
           </filter>
         </defs>
-        <g id="balls" filter="url(#goo)"></g>`;
+        <g id="balls" filter="url(#goo)"></g>
+      `;
       const g = goo.querySelector('#balls');
       const N = 10;
       const circles = [];
@@ -296,10 +296,10 @@
       for (const base of bases) {
         try {
           const res = await fetch(base + path, { cache: 'no-store' });
-          if (!res.ok) throw new Error(\`API error \${res.status}\`);
+          if (!res.ok) throw new Error(`API error ${res.status}`);
           const json = await res.json();
           const data = json && json.data ? json.data : [];
-          if (data.length) setStatus('ok', \`Live data ✓ (\${new URL(base).host})\`);
+          if (data.length) setStatus('ok', `Live data ✓ (${new URL(base).host})`);
           return data;
         } catch (e) { lastErr = e; }
       }
@@ -323,7 +323,7 @@
 
     function cardForUniverse(universeId){
       const key = UNIVERSE_TO_CARD[String(universeId)] || String(universeId);
-      return document.querySelector(\`.card[data-cardid="\${key}"]\`);
+      return document.querySelector(`.card[data-cardid="${key}"]`);
     }
 
     function applyData(game){
@@ -332,7 +332,7 @@
       const nameEl   = card.querySelector('[data-role="name"]');
       const playEl   = card.querySelector('[data-role="playing-value"]');
       const visitsEl = card.querySelector('[data-role="visits-value"]');
-      if (nameEl)   nameEl.textContent = game.name || \`Universe \${game.id}\`;
+      if (nameEl)   nameEl.textContent = game.name || `Universe ${game.id}`;
       if (playEl)   fadeUpdate(playEl,   game.playing ?? 0, { kick: true  });
       if (visitsEl) fadeUpdate(visitsEl, game.visits  ?? 0, { kick: false });
     }
@@ -350,7 +350,7 @@
         const base = (id % 1000) + (now % 5000);
         return {
           id: id,
-          name: \`Universe \${id}\`,
+          name: `Universe ${id}`,
           playing: (base % 50000) + i * 123,
           visits:  100000000 + (base % 5000000) * (i + 1)
         };
