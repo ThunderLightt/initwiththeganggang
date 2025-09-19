@@ -1,0 +1,401 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Roblox Live Dashboard</title>
+  <meta name="description" content="Live player and visit counts for selected Roblox games with animated background and center totals." />
+  <style>
+    :root {
+      --bg: rgb(17, 18, 22);
+      --fg: rgb(220, 223, 229);
+      --muted: rgb(154, 160, 172);
+      --card: rgb(28, 30, 36);
+      --line: rgba(255, 255, 255, 0.08);
+      --glow: rgba(255, 255, 255, 0.06);
+      --accent: rgb(255, 255, 255);
+      --ok: #58d08b;
+      --warn: #f3c969;
+      --err: #ff7a7a;
+    }
+
+    html, body { height: 100%; margin: 0; background: var(--bg); color: var(--fg);
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji"; }
+
+    /* Animated background canvas */
+    #bgCanvas { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 0; filter: blur(16px) saturate(1.35); }
+    .grain { position: fixed; inset: -50%; pointer-events: none; z-index: 1; opacity: .07; background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200"><filter id="n"><feTurbulence type="fractalNoise" baseFrequency="0.8" numOctaves="2"/></filter><rect width="100%" height="100%" filter="url(%23n)" opacity="0.8"/></svg>'); animation: drift 9s linear infinite; }
+    @keyframes drift { from { transform: translate3d(0,0,0); } to { transform: translate3d(20%,20%,0); } }
+
+    /* Goo layer */
+    #gooSvg { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 1; pointer-events: none; }
+
+    /* Main grid with "+" divider */
+    .grid { position: relative; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; height: 100%; width: 100%; overflow: hidden; isolation: isolate; z-index: 3; }
+    .grid::before, .grid::after { content: ""; position: absolute; inset: 0; pointer-events: none; }
+    .grid::before { border-left: 1px solid var(--line); left: 50%; transform: translateX(-0.5px); box-shadow: 0 0 40px 0 var(--glow) inset; }
+    .grid::after  { border-top: 1px solid var(--line); top: 50%; transform: translateY(-0.5px); box-shadow: 0 0 40px 0 var(--glow) inset; }
+
+    .cell { display: grid; place-items: center; padding: 2rem; }
+
+    .card { width: min(90%, 560px); background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.0)) , var(--card);
+      border: 1px solid rgba(255,255,255,0.06); border-radius: 18px; padding: 1.25rem 1.5rem;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6), 0 2px 8px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255,255,255,0.02) inset;
+      transform: translateY(-2px); transition: transform 200ms ease, box-shadow 200ms ease, border-color 200ms ease; }
+    .card:hover { transform: translateY(-6px); box-shadow: 0 28px 60px rgba(0, 0, 0, 0.7), 0 6px 16px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255,255,255,0.04) inset; border-color: rgba(255,255,255,0.1); }
+
+    .title { margin: 0 0 0.5rem 0; font-size: 1.05rem; font-weight: 600; letter-spacing: 0.2px; color: var(--muted); text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    .list { list-style: none; margin: 0; padding: 0; display: grid; gap: 16px; justify-items: center; }
+
+    /* Metric line: label + value */
+    .metric { display: inline-flex; gap: .55rem; align-items: baseline; filter: brightness(1.2); }
+    .metric .label { font-size: clamp(12px, 1.5vw, 14px); color: var(--muted); letter-spacing: .3px; }
+
+    .fade-number { font-weight: 800; font-size: clamp(32px, 6vw, 64px); line-height: 1; color: var(--accent);
+      opacity: 1; transition: opacity 320ms ease, transform 160ms ease; display: inline-block; animation: ambient 3.2s ease-in-out infinite; }
+    .fade-out { opacity: 0; transform: translateY(2px); }
+    .value-kick { animation: pop 260ms ease; }
+    @keyframes pop { 0% { transform: scale(.98); } 60% { transform: scale(1.03); } 100% { transform: scale(1); } }
+    @keyframes ambient { 0%,100% { text-shadow: 0 0 0 rgba(255,255,255,0.0); } 50% { text-shadow: 0 0 16px rgba(255,255,255,0.06); } }
+
+    /* Softer look for visits */
+    .soft { filter: brightness(0.95); opacity: 0.95; }
+    .big.soft { font-size: clamp(36px, 6.5vw, 72px); }
+
+    /* Center totals overlay */
+    .center { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%);
+      z-index: 4; display: grid; gap: 12px; justify-items: center; text-align: center;
+      background: rgba(15, 16, 20, 0.45); backdrop-filter: blur(10px);
+      border: 1px solid rgba(255,255,255,0.08); border-radius: 20px; padding: 18px 22px;
+      box-shadow: 0 24px 60px rgba(0,0,0,.55), 0 0 0 1px rgba(255,255,255,0.02) inset; }
+    .center .heading { margin: 0; font-size: 12px; letter-spacing: .28px; color: var(--muted); text-transform: uppercase; }
+    .center .big { font-size: clamp(40px, 8vw, 86px); font-weight: 900; line-height: 1; color: var(--accent); }
+
+    .footer { position: fixed; inset: auto 0 8px 0; display: grid; place-items: center; font-size: 12px; color: rgba(255,255,255,0.45); pointer-events: none; z-index: 4; }
+    .footer a { color: rgba(255,255,255,0.6); text-decoration: none; }
+
+    .status { position: fixed; left: 8px; bottom: 8px; font-size: 12px; padding: 6px 10px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.08);
+      box-shadow: 0 8px 20px rgba(0,0,0,.45); background: rgba(255,255,255,0.03); backdrop-filter: blur(4px); display: inline-flex; gap: 8px; align-items: center; z-index: 4; }
+    .status .dot { width: 8px; height: 8px; border-radius: 999px; display: inline-block; }
+
+    @media (max-width: 900px) { .card { width: min(94%, 520px); } }
+  </style>
+</head>
+<body>
+  <canvas id="bgCanvas" aria-hidden="true"></canvas>
+  <div class="grain" aria-hidden="true"></div>
+  <svg id="gooSvg" aria-hidden="true"></svg>
+
+  <!-- Center combined totals -->
+  <section class="center" aria-live="polite">
+    <h3 class="heading">Combined</h3>
+    <div class="metric"><span class="label">Players:</span> <span class="fade-number big" id="totalPlayers">—</span></div>
+    <div class="metric"><span class="label">Visits:</span> <span class="fade-number big soft" id="totalVisits">—</span></div>
+  </section>
+
+  <main class="grid" role="main">
+    <!-- TL -->
+    <section class="cell">
+      <article class="card" data-cardid="8658053881">
+        <h2 class="title" data-role="name">Loading…</h2>
+        <ul class="list">
+          <li><div class="metric"><span class="label">Players:</span> <span class="fade-number value" data-role="playing-value">—</span></div></li>
+          <li><div class="metric"><span class="label">Visits:</span> <span class="fade-number value soft" data-role="visits-value">—</span></div></li>
+        </ul>
+      </article>
+    </section>
+
+    <!-- TR -->
+    <section class="cell">
+      <article class="card" data-cardid="8715410478">
+        <h2 class="title" data-role="name">Loading…</h2>
+        <ul class="list">
+          <li><div class="metric"><span class="label">Players:</span> <span class="fade-number value" data-role="playing-value">—</span></div></li>
+          <li><div class="metric"><span class="label">Visits:</span> <span class="fade-number value soft" data-role="visits-value">—</span></div></li>
+        </ul>
+      </article>
+    </section>
+
+    <!-- BL -->
+    <section class="cell">
+      <article class="card" data-cardid="8703742688">
+        <h2 class="title" data-role="name">Loading…</h2>
+        <ul class="list">
+          <li><div class="metric"><span class="label">Players:</span> <span class="fade-number value" data-role="playing-value">—</span></div></li>
+          <li><div class="metric"><span class="label">Visits:</span> <span class="fade-number value soft" data-role="visits-value">—</span></div></li>
+        </ul>
+      </article>
+    </section>
+
+    <!-- BR -->
+    <section class="cell">
+      <article class="card" data-cardid="8737717654">
+        <h2 class="title" data-role="name">Loading…</h2>
+        <ul class="list">
+          <li><div class="metric"><span class="label">Players:</span> <span class="fade-number value" data-role="playing-value">—</span></div></li>
+          <li><div class="metric"><span class="label">Visits:</span> <span class="fade-number value soft" data-role="visits-value">—</span></div></li>
+        </ul>
+      </article>
+    </section>
+  </main>
+
+  <div class="footer">Data from Roblox public APIs • Updates every 15s • Add <code>?mock=1</code> to force mock data</div>
+  <div class="status" id="status" aria-live="polite" title="Network status">
+    <span class="dot" id="statusDot" style="background: var(--warn)"></span>
+    <span id="statusText">Initializing…</span>
+  </div>
+
+  <script>
+    // ---------- Animated background (blobs on canvas) ----------
+    const bg = document.getElementById('bgCanvas');
+    const ctx = bg.getContext('2d');
+    let W, H, dpr;
+    const blobs = Array.from({length: 12}).map((_,i)=>({
+      x: Math.random(), y: Math.random(), r: 0.18 + Math.random()*0.22,
+      hue: 200 + Math.random()*140,
+      spx: (Math.random()*1.0+0.4) * (Math.random()<.5?-1:1),
+      spy: (Math.random()*1.0+0.4) * (Math.random()<.5?-1:1),
+      off: Math.random()*Math.PI*2
+    }));
+    function sizeCanvas(){ dpr = Math.max(1, Math.min(2, window.devicePixelRatio||1)); W = bg.width = Math.floor(innerWidth * dpr); H = bg.height = Math.floor(innerHeight * dpr); bg.style.width = innerWidth+'px'; bg.style.height = innerHeight+'px'; ctx.setTransform(1,0,0,1,0,0); }
+    function draw(){
+      ctx.fillStyle = 'rgb(17,18,22)'; ctx.fillRect(0,0,W,H);
+      ctx.globalCompositeOperation = 'lighter';
+      const t = performance.now()/1000;
+      for (const b of blobs){
+        const cx = (b.x + Math.sin(t*0.11 + b.off)*0.07 + (t*b.spx*0.0006)) % 1;
+        const cy = (b.y + Math.cos(t*0.10 + b.off)*0.07 + (t*b.spy*0.0006)) % 1;
+        const x = ((cx+1)%1) * W, y = ((cy+1)%1) * H;
+        const r = Math.min(W,H) * b.r * (0.85 + 0.25*Math.sin(t*1.0 + b.off));
+        const grad = ctx.createRadialGradient(x,y,0,x,y,r);
+        const hue = b.hue + Math.sin(t*0.15 + b.off)*20;
+        grad.addColorStop(0, `hsla(${hue.toFixed(1)}, 72%, 60%, 0.18)`);
+        grad.addColorStop(1, 'hsla(0, 0%, 0%, 0)');
+        ctx.fillStyle = grad; ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill();
+      }
+      ctx.globalCompositeOperation = 'source-over';
+      requestAnimationFrame(draw);
+    }
+    sizeCanvas(); draw();
+    addEventListener('resize', sizeCanvas);
+
+    // ---------- Gooey metaballs overlay (SVG) ----------
+    const goo = document.getElementById('gooSvg');
+    function setupGoo(){
+      goo.setAttribute('viewBox', `0 0 ${innerWidth} ${innerHeight}`);
+      goo.innerHTML = `
+        <defs>
+          <filter id="goo">
+            <feGaussianBlur in="SourceGraphic" stdDeviation="18" result="blur" />
+            <feColorMatrix in="blur" mode="matrix" values="
+              1 0 0 0 0
+              0 1 0 0 0
+              0 0 1 0 0
+              0 0 0 20 -10" result="goo" />
+            <feBlend in="SourceGraphic" in2="goo" />
+          </filter>
+        </defs>
+        <g id="balls" filter="url(#goo)"></g>`;
+      const g = goo.querySelector('#balls');
+      const N = 10;
+      const circles = [];
+      for (let i=0;i<N;i++){
+        const c = document.createElementNS('http://www.w3.org/2000/svg','circle');
+        const hue = 210 + Math.random()*120;
+        c.setAttribute('r', String(60 + Math.random()*120));
+        c.setAttribute('cx', String(Math.random()*innerWidth));
+        c.setAttribute('cy', String(Math.random()*innerHeight));
+        c.setAttribute('fill', `hsla(${hue.toFixed(1)},70%,60%,0.6)`);
+        g.appendChild(c);
+        circles.push({el:c, vx:(Math.random()*120+40)*(Math.random()<.5?-1:1), vy:(Math.random()*120+40)*(Math.random()<.5?-1:1)});
+      }
+      function tick(dt){
+        for (let i=0;i<circles.length;i++){
+          const c = circles[i];
+          const el = c.el; const r = Number(el.getAttribute('r'));
+          let x = Number(el.getAttribute('cx')); let y = Number(el.getAttribute('cy'));
+          x += c.vx * dt; y += c.vy * dt;
+          if (x < -r) { x = innerWidth + r; }
+          if (x > innerWidth + r) { x = -r; }
+          if (y < -r) { y = innerHeight + r; }
+          if (y > innerHeight + r) { y = -r; }
+          el.setAttribute('cx', String(x)); el.setAttribute('cy', String(y));
+        }
+      }
+      let last = performance.now();
+      function loop(now){ const dt = Math.min(0.033, (now-last)/1000); last = now; tick(dt); requestAnimationFrame(loop); }
+      requestAnimationFrame(loop);
+    }
+    setupGoo();
+    addEventListener('resize', setupGoo);
+
+    // ---------- Data layer ----------
+    const INPUT_IDS = [8658053881, 8715410478, 8703742688, 8737717654];
+    const params = new URLSearchParams(location.search);
+    const apiChoice = (params.get('api') || '').toLowerCase();
+    const customBase = params.get('base');
+    const FORCE_MOCK = params.get('mock') === '1';
+
+    const API_ROPROXY = 'https://games.roproxy.com/v1/games?universeIds=';
+    const API_ROBLOX  = 'https://games.roblox.com/v1/games?universeIds=';
+    const PLACE_MULTI_ROPROXY = 'https://apis.roproxy.com/universes/v1/places/multiget?placeIds=';
+    const PLACE_MULTI_ROBLOX  = 'https://apis.roblox.com/universes/v1/places/multiget?placeIds=';
+
+    function getApiBases() {
+      if (apiChoice === 'custom' && customBase) return [customBase];
+      if (apiChoice === 'roblox') return [API_ROBLOX, API_ROPROXY];
+      if (apiChoice === 'roproxy') return [API_ROPROXY, API_ROBLOX];
+      return [API_ROPROXY, API_ROBLOX];
+    }
+    function getPlaceBases() {
+      if (apiChoice === 'custom' && customBase) return [customBase];
+      if (apiChoice === 'roblox') return [PLACE_MULTI_ROBLOX, PLACE_MULTI_ROPROXY];
+      if (apiChoice === 'roproxy') return [PLACE_MULTI_ROPROXY, PLACE_MULTI_ROBLOX];
+      return [PLACE_MULTI_ROPROXY, PLACE_MULTI_ROBLOX];
+    }
+
+    const REFRESH_MS = 15000;
+    const fmt = new Intl.NumberFormat('en-US');
+
+    const statusDot = document.getElementById('statusDot');
+    const statusText = document.getElementById('statusText');
+    function setStatus(type, msg) {
+      const colors = { ok: 'var(--ok)', warn: 'var(--warn)', err: 'var(--err)' };
+      statusDot.style.background = colors[type] || 'var(--warn)';
+      statusText.textContent = msg;
+    }
+
+    let UNIVERSE_TO_CARD = {};
+    function setCardMap(universeIds){
+      UNIVERSE_TO_CARD = {};
+      universeIds.forEach((uid, i) => UNIVERSE_TO_CARD[String(uid)] = String(INPUT_IDS[i]));
+    }
+
+    async function resolveUniverses(ids) {
+      const bases = getPlaceBases();
+      const path = ids.join(',');
+      for (const base of bases) {
+        try {
+          const res = await fetch(base + path, { cache: 'no-store' });
+          if (!res.ok) throw new Error('resolve ' + res.status);
+          const arr = await res.json();
+          if (Array.isArray(arr) && arr.length) {
+            const map = new Map(arr.map(x => [String(x.placeId), x.universeId]));
+            return ids.map(id => map.get(String(id)) || id);
+          }
+        } catch (_) { }
+      }
+      return ids;
+    }
+
+    async function fetchGames(universeIds) {
+      const bases = getApiBases();
+      const path = universeIds.join(',');
+      let lastErr;
+      for (const base of bases) {
+        try {
+          const res = await fetch(base + path, { cache: 'no-store' });
+          if (!res.ok) throw new Error(\`API error \${res.status}\`);
+          const json = await res.json();
+          const data = json && json.data ? json.data : [];
+          if (data.length) setStatus('ok', \`Live data ✓ (\${new URL(base).host})\`);
+          return data;
+        } catch (e) { lastErr = e; }
+      }
+      throw lastErr || new Error('All API bases failed');
+    }
+
+    function fadeUpdate(el, newValue, opts = {}){
+      const { kick = true } = opts;
+      if (!el) return;
+      el.classList.add('fade-out');
+      setTimeout(()=>{
+        el.textContent = fmt.format(Number(newValue)||0);
+        el.classList.remove('fade-out');
+        if (kick) {
+          el.classList.remove('value-kick');
+          void el.offsetWidth;
+          el.classList.add('value-kick');
+        }
+      }, 220);
+    }
+
+    function cardForUniverse(universeId){
+      const key = UNIVERSE_TO_CARD[String(universeId)] || String(universeId);
+      return document.querySelector(\`.card[data-cardid="\${key}"]\`);
+    }
+
+    function applyData(game){
+      const card = cardForUniverse(game.id);
+      if (!card) return;
+      const nameEl   = card.querySelector('[data-role="name"]');
+      const playEl   = card.querySelector('[data-role="playing-value"]');
+      const visitsEl = card.querySelector('[data-role="visits-value"]');
+      if (nameEl)   nameEl.textContent = game.name || \`Universe \${game.id}\`;
+      if (playEl)   fadeUpdate(playEl,   game.playing ?? 0, { kick: true  });
+      if (visitsEl) fadeUpdate(visitsEl, game.visits  ?? 0, { kick: false });
+    }
+
+    function applyTotals(games){
+      const totalP = games.reduce((s,g)=> s + (Number(g.playing)||0), 0);
+      const totalV = games.reduce((s,g)=> s + (Number(g.visits)||0), 0);
+      fadeUpdate(document.getElementById('totalPlayers'), totalP, { kick: true  });
+      fadeUpdate(document.getElementById('totalVisits'),  totalV, { kick: false });
+    }
+
+    function mockData(ids){
+      const now = Date.now();
+      return ids.map((id, i) => {
+        const base = (id % 1000) + (now % 5000);
+        return {
+          id: id,
+          name: \`Universe \${id}\`,
+          playing: (base % 50000) + i * 123,
+          visits:  100000000 + (base % 5000000) * (i + 1)
+        };
+      });
+    }
+
+    async function updateAll(){
+      try {
+        if (FORCE_MOCK){
+          setCardMap(INPUT_IDS);
+          const data = mockData(INPUT_IDS);
+          data.forEach(applyData);
+          applyTotals(data);
+          setStatus('warn', 'Mock mode');
+          return;
+        }
+        setCardMap(INPUT_IDS);
+        let data = await fetchGames(INPUT_IDS);
+        if (!data || !data.length){
+          const universes = await resolveUniverses(INPUT_IDS);
+          setCardMap(universes);
+          data = await fetchGames(universes);
+        }
+        if (!data || !data.length){
+          setCardMap(INPUT_IDS);
+          const m = mockData(INPUT_IDS);
+          m.forEach(applyData);
+          applyTotals(m);
+          setStatus('warn', 'No data returned — showing mock');
+          return;
+        }
+        data.forEach(applyData);
+        applyTotals(data);
+      } catch (err){
+        console.error('[updateAll] error', err);
+        setCardMap(INPUT_IDS);
+        const m = mockData(INPUT_IDS);
+        m.forEach(applyData);
+        applyTotals(m);
+        setStatus('err', 'Network blocked — showing mock');
+      }
+    }
+
+    updateAll();
+    setInterval(updateAll, REFRESH_MS);
+  </script>
+</body>
+</html>
