@@ -1,202 +1,75 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Dashboard with Constellation Background</title>
+  <title>Roblox Live Dashboard</title>
+  <meta name="description" content="Live player and visit counts for selected Roblox games with a grey blurred constellation background." />
   <style>
-    /* Reset + base */
-    * { box-sizing: border-box; }
-    html, body { height: 100%; margin: 0; background: #1f1f23; }
-
-    /* Constellation background canvas */
+    :root {
+      --bg: #1f1f23;
+      --fg: #e8e9ee;
+      --muted: #b8bdc7;
+      --card: #23242a;
+      --line: rgba(255,255,255,0.08);
+      --glow: rgba(255,255,255,0.06);
+      --accent: #ffffff;
+      --ok: #58d08b;
+      --warn: #f3c969;
+      --err: #ff7a7a;
+      --font-ui: 'Inter', 'Segoe UI', Roboto, system-ui, -apple-system, Helvetica, Arial, sans-serif;
+    }
+    html, body { height: 100%; margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font-ui); }
     #constellation {
       position: fixed;
       inset: 0;
       width: 100vw;
       height: 100vh;
       display: block;
-      z-index: -1;           /* behind all content */
-      filter: blur(2.5px);   /* soft blur */
-      opacity: 0.9;          /* subtle, not overpowering */
-      pointer-events: none;  /* don’t block clicks */
-      background: #1f1f23;   /* solid grey bg */
+      z-index: 0;
+      filter: blur(2.5px);
+      opacity: 0.9;
+      pointer-events: none;
+      background: var(--bg);
     }
-
-    /* Example dashboard card (replace with your own content) */
-    .content {
-      position: relative;
-      display: grid;
-      place-items: center;
-      min-height: 100vh;
-      color: #f6f7f9;
-      font: 700 1.25rem/1.5 system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-      text-shadow: 0 2px 6px rgba(0,0,0,.35);
-      z-index: 1;
-    }
-    .card {
-      background: rgba(0,0,0,0.25);
-      border: 1px solid rgba(255,255,255,.08);
-      border-radius: 16px;
-      padding: 28px 32px;
-      backdrop-filter: saturate(130%) blur(8px);
-      box-shadow: 0 10px 40px rgba(0,0,0,.35);
-      max-width: 640px;
-      text-align: center;
-    }
-    .card h1 { margin: 0 0 8px; font-size: 2rem; }
-    .card p { margin: 0; opacity: .9; }
+    .grid { position: relative; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; height: 100%; width: 100%; overflow: hidden; isolation: isolate; z-index: 1; }
+    .grid::before, .grid::after { content: ""; position: absolute; inset: 0; pointer-events: none; }
+    .grid::before { border-left: 1px solid var(--line); left: 50%; transform: translateX(-0.5px); box-shadow: 0 0 40px 0 var(--glow) inset; }
+    .grid::after  { border-top: 1px solid var(--line); top: 50%; transform: translateY(-0.5px); box-shadow: 0 0 40px 0 var(--glow) inset; }
+    .cell { display: grid; place-items: center; padding: 2rem; }
+    .card { width: min(90%, 560px); background: var(--card);
+      border: 1px solid rgba(255,255,255,0.06); border-radius: 18px; padding: 1.25rem 1.5rem;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6), 0 2px 8px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255,255,255,0.02) inset;
+      transform: translateY(-2px); transition: transform 200ms ease, box-shadow 200ms ease, border-color 200ms ease; }
+    .title { margin: 0 0 0.5rem 0; font-size: 1.05rem; font-weight: 600; letter-spacing: 0.2px; color: var(--muted); text-align: center; }
+    .list { list-style: none; margin: 0; padding: 0; display: grid; gap: 16px; justify-items: center; }
+    .metric { display: inline-flex; gap: .55rem; align-items: baseline; }
+    .metric .label { font-size: clamp(12px, 1.5vw, 14px); color: var(--muted); }
+    .fade-number { font-weight: 800; font-size: clamp(32px, 6vw, 64px); line-height: 1; color: var(--accent); transition: opacity 320ms ease, transform 160ms ease; display: inline-block; }
+    .soft { filter: brightness(0.95); opacity: 0.95; }
+    .center { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 2; display: grid; gap: 12px; justify-items: center; text-align: center;
+      background: rgba(15, 16, 20, 0.45); backdrop-filter: blur(10px);
+      border: 1px solid rgba(255,255,255,0.08); border-radius: 20px; padding: 18px 22px; }
+    .footer { position: fixed; inset: auto 0 8px 0; display: grid; place-items: center; font-size: 12px; color: rgba(255,255,255,0.45); pointer-events: none; z-index: 2; }
+    .status { position: fixed; left: 8px; bottom: 8px; font-size: 12px; padding: 6px 10px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.08);
+      box-shadow: 0 8px 20px rgba(0,0,0,.45); background: rgba(255,255,255,0.03); backdrop-filter: blur(4px); display: inline-flex; gap: 8px; align-items: center; z-index: 2; }
+    .status .dot { width: 8px; height: 8px; border-radius: 999px; display: inline-block; }
   </style>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@700&display=swap" rel="stylesheet">
 </head>
 <body>
-  <!-- Background -->
   <canvas id="constellation" aria-hidden="true"></canvas>
-
-  <!-- Your dashboard / content -->
-  <main class="content">
-    <div class="card">
-      <h1>My Dashboard</h1>
-      <p>All of your existing UI goes here, the background stays behind ✨</p>
-    </div>
+  <section class="center">
+    <div class="metric"><span class="label">Players:</span> <span class="fade-number" id="totalPlayers">—</span></div>
+    <div class="metric"><span class="label">Visits:</span> <span class="fade-number soft" id="totalVisits">—</span></div>
+  </section>
+  <main class="grid">
+    <section class="cell"><article class="card" data-cardid="8658053881"><h2 class="title" data-role="name">Loading…</h2><ul class="list"><li><div class="metric"><span class="label">Players:</span> <span class="fade-number" data-role="playing-value">—</span></div></li><li><div class="metric"><span class="label">Visits:</span> <span class="fade-number soft" data-role="visits-value">—</span></div></li></ul></article></section>
+    <section class="cell"><article class="card" data-cardid="8715410478"><h2 class="title" data-role="name">Loading…</h2><ul class="list"><li><div class="metric"><span class="label">Players:</span> <span class="fade-number" data-role="playing-value">—</span></div></li><li><div class="metric"><span class="label">Visits:</span> <span class="fade-number soft" data-role="visits-value">—</span></div></li></ul></article></section>
+    <section class="cell"><article class="card" data-cardid="8703742688"><h2 class="title" data-role="name">Loading…</h2><ul class="list"><li><div class="metric"><span class="label">Players:</span> <span class="fade-number" data-role="playing-value">—</span></div></li><li><div class="metric"><span class="label">Visits:</span> <span class="fade-number soft" data-role="visits-value">—</span></div></li></ul></article></section>
+    <section class="cell"><article class="card" data-cardid="8737717654"><h2 class="title" data-role="name">Loading…</h2><ul class="list"><li><div class="metric"><span class="label">Players:</span> <span class="fade-number" data-role="playing-value">—</span></div></li><li><div class="metric"><span class="label">Visits:</span> <span class="fade-number soft" data-role="visits-value">—</span></div></li></ul></article></section>
   </main>
-
-  <!-- Background script -->
-  <script>
-  (() => {
-    const cfg = {
-      particleCount: 120,
-      maxConnections: 6,
-      linkDistance: 140,
-      linkWidth: 1.0,
-      particleSize: [1.2, 2.2],
-      speed: [0.2, 0.7],
-      cursorRadius: 160,
-      background: "#1f1f23", // grey
-      dotColor: "#ffffff",   // white dots
-      lineColor: "#ffffff",  // white lines
-      lineAlpha: 0.55,
-      densityBase: 1920*1080
-    };
-
-    const cvs = document.getElementById('constellation');
-    const ctx = cvs.getContext('2d', { alpha: false });
-    const DPR = Math.max(1, Math.min(window.devicePixelRatio || 1, 2));
-    let particles = [];
-    const mouse = { x: null, y: null, active: false };
-    let running = true;
-
-    function rand(min, max){ return Math.random() * (max - min) + min; }
-
-    function resize(){
-      const w = window.innerWidth, h = window.innerHeight;
-      cvs.style.width = w + 'px';
-      cvs.style.height = h + 'px';
-      cvs.width = Math.floor(w * DPR);
-      cvs.height = Math.floor(h * DPR);
-      ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-      ctx.fillStyle = cfg.background;
-      ctx.fillRect(0, 0, w, h);
-      const scale = Math.max(0.4, Math.min(2.0, (w*h) / cfg.densityBase));
-      setParticleCount(Math.round(cfg.particleCount * scale));
-    }
-
-    class P {
-      constructor(w,h){ this.reset(w,h,true); }
-      reset(w,h,pos=false){
-        this.x = pos ? Math.random()*w : this.x;
-        this.y = pos ? Math.random()*h : this.y;
-        this.vx = rand(cfg.speed[0], cfg.speed[1]) * (Math.random()<.5?-1:1);
-        this.vy = rand(cfg.speed[0], cfg.speed[1]) * (Math.random()<.5?-1:1);
-        this.r = rand(cfg.particleSize[0], cfg.particleSize[1]);
-        this.connections = 0;
-      }
-      step(w,h){
-        if (mouse.active){
-          const dx = mouse.x - this.x, dy = mouse.y - this.y;
-          const r = cfg.cursorRadius, d2 = dx*dx + dy*dy;
-          if (d2 < r*r){
-            const f = (1 - Math.sqrt(d2)/r) * 0.02;
-            this.vx += dx * f; this.vy += dy * f;
-          }
-        }
-        this.x += this.vx; this.y += this.vy;
-        if (this.x < -50) this.x = w + 50;
-        if (this.x > w + 50) this.x = -50;
-        if (this.y < -50) this.y = h + 50;
-        if (this.y > h + 50) this.y = -50;
-        this.vx *= 0.995; this.vy *= 0.995;
-        this.connections = 0;
-      }
-      draw(){
-        ctx.beginPath();
-        ctx.arc(this.x, this.y, this.r, 0, Math.PI*2);
-        ctx.fillStyle = cfg.dotColor;
-        ctx.fill();
-      }
-    }
-
-    function setParticleCount(target){
-      const w = cvs.clientWidth, h = cvs.clientHeight;
-      if (particles.length < target){
-        for (let i = particles.length; i < target; i++) particles.push(new P(w,h));
-      } else if (particles.length > target){
-        particles.length = target;
-      }
-    }
-
-    function connect(){
-      const n = particles.length, maxD = cfg.linkDistance, maxD2 = maxD*maxD;
-      ctx.lineWidth = cfg.linkWidth;
-      ctx.strokeStyle = cfg.lineColor;
-      ctx.globalAlpha = cfg.lineAlpha;
-      for (let i=0;i<n;i++){
-        const p = particles[i];
-        if (p.connections >= cfg.maxConnections) continue;
-        for (let j=i+1;j<n;j++){
-          const q = particles[j];
-          if (q.connections >= cfg.maxConnections) continue;
-          const dx = p.x - q.x, dy = p.y - q.y, d2 = dx*dx + dy*dy;
-          if (d2 <= maxD2){
-            ctx.beginPath();
-            ctx.moveTo(p.x, p.y);
-            ctx.lineTo(q.x, q.y);
-            ctx.stroke();
-            p.connections++; q.connections++;
-            if (p.connections >= cfg.maxConnections) break;
-          }
-        }
-      }
-      ctx.globalAlpha = 1;
-    }
-
-    function frame(){
-      if (!running) return;
-      const w = cvs.clientWidth, h = cvs.clientHeight;
-      ctx.fillStyle = cfg.background;
-      ctx.fillRect(0, 0, w, h);
-      for (const p of particles){ p.step(w,h); p.draw(); }
-      connect();
-      requestAnimationFrame(frame);
-    }
-
-    // Events
-    window.addEventListener('resize', resize);
-    window.addEventListener('mousemove', e => { mouse.x=e.clientX; mouse.y=e.clientY; mouse.active=true; });
-    window.addEventListener('mouseleave', () => { mouse.active=false; });
-    window.addEventListener('touchmove', e => {
-      const t = e.touches[0]; if (!t) return;
-      mouse.x=t.clientX; mouse.y=t.clientY; mouse.active=true;
-    }, { passive:true });
-    window.addEventListener('touchend', () => { mouse.active=false; });
-    document.addEventListener('visibilitychange', () => {
-      running = document.visibilityState !== 'hidden';
-      if (running) requestAnimationFrame(frame);
-    });
-
-    // Init
-    resize();
-    requestAnimationFrame(frame);
-  })();
-  </script>
+  <div class="footer">Data from Roblox APIs • Updates every 15s • Add <code>?mock=1</code></div>
+  <div class="status"><span class="dot" id="statusDot"></span><span id="statusText">Initializing…</span></div>
 </body>
 </html>
